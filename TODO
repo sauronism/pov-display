@@ -1,0 +1,4 @@
+1.  add a angle position value (by precentage maybe)
+    -- for the led display to be able to hold the image at a stable offset.
+    -- maybe in degrees.
+    -- should be a part of the encoder struct - maybe have a new struct -> display movement [speed, pos] 
