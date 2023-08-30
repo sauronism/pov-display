@@ -19,12 +19,21 @@ void encoderInterrupt() {
   encoder.lastTickTime = millis();
 }
 
-int calculateRotationSpeed() {
+int encoderGetRotationSpeed() {
   int dt = encoder.lastTickTime - encoder.previousTickTime;
   unsigned int speed = 0;
-
   if (dt > 0)
-    speed = (float)(1 / ENCODER_TICKS_PER_ROTATION) * 1000.0 / dt;  //spped is in rotations per second -- RPS
+    speed = (double)(1 / ENCODER_TICKS_PER_ROTATION) * 1000.0 / dt;  //speed is in rotations per second -- RPS
 
   return speed;
 }
+
+int encoderGetPosition() {
+  // angle of the device from the top - in degrees
+  double rotSpeedDps = (double)encoderGetRotationSpeed() / 360.0;  // degrees per second
+  long timeFromLastTick = millis() - encoder.lastTickTime;          // TODO - consider using time_from_*startTick* (using an absulute start position for the device)
+
+  int angle = (double)(rotSpeedDps * timeFromLastTick / 1000.0);
+  return angle;
+}
+
