@@ -1,4 +1,4 @@
-take a look at the legacy-arduino-code branch
+take a look at the legacy-arduino-style branch
 
 # Sauron Tower POV Display
 
