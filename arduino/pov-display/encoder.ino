@@ -3,12 +3,12 @@
 #define ENCODER_INTERRUPT_MODE RISING
 #define ENCODER_TICKS_PER_ROTATION 2
 
-struct EncoderData {
+typedef struct {
   unsigned long lastTickTime;
   unsigned long previousTickTime;
-};
+} EncoderData;
 
-EncoderData encoder;
+EncoderData encoder = { 0, 0 };
 
 void encoderSetup() {
   attachInterrupt(digitalPinToInterrupt(ENCODER_PIN), encoderInterrupt, ENCODER_INTERRUPT_MODE);
@@ -31,9 +31,8 @@ int encoderGetRotationSpeed() {
 int encoderGetPosition() {
   // angle of the device from the top - in degrees
   double rotSpeedDps = (double)encoderGetRotationSpeed() / 360.0;  // degrees per second
-  long timeFromLastTick = millis() - encoder.lastTickTime;          // TODO - consider using time_from_*startTick* (using an absulute start position for the device)
+  long timeFromLastTick = millis() - encoder.lastTickTime;         // TODO - consider using time_from_*startTick* (using an absulute start position for the device)
 
   int angle = (double)(rotSpeedDps * timeFromLastTick / 1000.0);
   return angle;
 }
-
