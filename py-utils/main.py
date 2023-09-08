@@ -1,5 +1,4 @@
 import os
-import time
 import cv2
 from video_utils import VideoReader
 
