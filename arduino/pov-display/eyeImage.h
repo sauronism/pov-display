@@ -1,1 +1,1 @@
-uint32_t eyeImage[IMAGE_HEIGHT][NUM_LEDS] = {{}};
+uint32_t eyeImage[IMAGE_HEIGHT_PIXELS][NUM_LEDS] = {{}};
