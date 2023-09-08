@@ -1,5 +1,5 @@
-import os
 import cv2
+from tqdm import tqdm
 
 
 class VideoReader:
@@ -37,6 +37,7 @@ class VideoReader:
                 break
 
         else:
+            self.cap.release()
             raise StopIteration
 
         return frame
@@ -47,24 +48,6 @@ class VideoReader:
     def __exit__(self, exc_type, exc_value, traceback):
         self.cap.release()
 
-
-output_folder = 'output_images/'
-
-video_reader_settings = {
-    "video_path": "sauron.mp4",
-    "width": 300,
-    "height": 200,
-    "duration_seconds": 120,
-    "fps": 20,
-}
-
-
-os.makedirs(output_folder, exist_ok=True)
-
-with VideoReader(**video_reader_settings) as video_reader:
-    for frame in video_reader:
-        # Save the frame as an image
-        output_path = os.path.join(
-            output_folder, f"frame_{video_reader.current_frame:04d}.bmp")
-
-        cv2.imwrite(output_path, frame)
+    def iterate_with_progress(self):
+        for frame in tqdm(self, total=self.desired_duration_frames, desc="Processing Frames"):
+            yield frame
