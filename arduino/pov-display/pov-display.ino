@@ -41,6 +41,7 @@ void setup() {
 
 CRGB imageFrame[IMAGE_HEIGHT_PIXELS][NUM_LEDS];
 int frameIndex;
+
 void loop() {
   int ledsAngle = encoderGetPosition();  // in degrees from the top TEST:(0 - 360)
 
@@ -57,3 +58,4 @@ void loop() {
 
   updateLedStrip();
 }
+
