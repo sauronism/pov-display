@@ -14,14 +14,20 @@ def color_to_hex(r, g, b):
 
 def img_to_txt_file(input_img_path, output_img_path):
     image = Image.open(input_img_path)
+    rgb_im = image.convert('RGB')
     width, height = image.size
-
+    index = 0
     with open(output_img_path, "wb") as output:
         for y in range(height):
             for x in range(width):
-                pixel = image.getpixel((x, y))
-                # output.write(color_to_hex(*pixel[:3])) # if you want it like text
-                output.write(bytes(pixel[:3]))
+                r, g, b = rgb_im.getpixel((x, y))
+                print(f"{index=}, {r=}, {g=}, {b=}")
+                # if you want it like text
+                output.write(r.to_bytes())
+                output.write(g.to_bytes())
+                output.write(b.to_bytes())
+                index += 1
+                # output.write(bytes(pixel[:3]))
             # output.write("\n".encode()) #if you want it text like
 
 

@@ -6,7 +6,7 @@ output_folder = 'output_images/'
 
 video_reader_settings = {
     "video_path": "sauron.mp4",
-    "resize": (300, 200),
+    "resize": (300, 80),
     "duration_seconds": 160,
     "fps": 20,
 }
