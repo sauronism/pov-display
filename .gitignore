@@ -8,3 +8,4 @@
 .vscode/launch.json
 .vscode/ipch
 **venv
+.idea/
