@@ -9,3 +9,4 @@
 .vscode/ipch
 **venv
 .idea/
+*.DS_Store
