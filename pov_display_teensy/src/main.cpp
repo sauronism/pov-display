@@ -4,6 +4,21 @@
 #include <math.h>
 #include <iterator>
 #include <algorithm>
+#include <SoftwareSerial.h>
+#include <ArduinoJson.h>
+
+// debugging
+#define DEBUG_ENABLED true
+#define DEBUG_PRINTF(...)       \
+  if (DEBUG_ENABLED)            \
+  {                             \
+    Serial.printf(__VA_ARGS__); \
+  }
+
+// command constants
+#define TRUE 1
+#define FALSE 0
+#define NO_OP -1
 
 // --- LOGGING --- //
 #define LOG_SD true
@@ -113,6 +128,60 @@ void updateImageFrame(int frameIndex)
 
   file.close();
 }
+//----------------------------------------------------------------
+#define esp_serial Serial2
+
+typedef StaticJsonDocument<256> Packet;
+typedef struct
+{
+  short display_on;
+  short eye_azimuth;
+  short display_custom_text;
+  String custom_text_data;
+} cmd_t;
+
+short getIntJsonProperty(Packet pkt, char *propertyName)
+{
+  return pkt.containsKey(propertyName) ? pkt[propertyName].as<short>() : NO_OP;
+}
+
+String getStringJsonProperty(Packet pkt, char *propertyName)
+{
+  return pkt.containsKey(propertyName) ? pkt[propertyName].as<String>() : "";
+}
+
+cmd_t parseJsonCmd(Packet json_data)
+{
+  cmd_t command;
+  command.display_on = getIntJsonProperty(json_data, "display_on");
+  command.eye_azimuth = getIntJsonProperty(json_data, "eye_azimuth");
+  command.display_custom_text = getIntJsonProperty(json_data, "display_custom_text");
+  command.custom_text_data = getStringJsonProperty(json_data, "custom_text_data");
+}
+
+bool parseJsonString(String pktString, Packet &pkt)
+{
+  DeserializationError error = deserializeJson(pkt, pktString);
+  if (error)
+  {
+    DEBUG_PRINTF("Error parsing JSON: %s", error);
+    return false;
+  }
+  return true;
+}
+cmd_t read_esp_command()
+{
+  Packet json_packet;
+  cmd_t command;
+
+  String pktString = esp_serial.readStringUntil('\0');
+  if (parseJsonString(pktString, json_packet))
+  {
+    command = parseJsonCmd(json_packet);
+  }
+  return command;
+}
+//----------------------------------------------------------------
 
 // --- ENCODER --- //
 #define ENCODER_PIN 5
@@ -201,20 +270,7 @@ int ledsAngleToYCurser(const double alpha)
   return round(yCursor);
 }
 
-void setup()
-{
-  delay(3000); // 3 second delay for good measure
-
-  SDSetup();
-  ledsSetup();
-  encoderSetup(); // interrupt pin definition
-
-  // for tests only - read only one frame
-  updateImageFrame(0);
-  Serial.printf("setup end\n");
-}
-
-void loop()
+void display_video(int azimuth)
 {
   static auto frameIndex = 0;
 
@@ -237,5 +293,42 @@ void loop()
   {
     std::copy(std::begin(imageFrame[imageCurserY]), std::end(imageFrame[imageCurserY]), std::begin(ledStrip));
   }
+  FastLED.show();
+}
+
+void setup()
+{
+  delay(3000); // 3 second delay for good measure
+
+  SDSetup();
+  ledsSetup();
+  encoderSetup(); // interrupt pin definition
+
+  // for tests only - read only one frame
+  updateImageFrame(0);
+  Serial.printf("setup end\n");
+}
+
+void loop()
+{
+  cmd_t esp_command;
+  if (esp_serial.available())
+  {
+    esp_command = read_esp_command();
+  }
+
+  if (esp_command.display_on != 1)
+  {
+    fill_solid(ledStrip, NUM_LEDS, 0);
+  }
+  else if (esp_command.display_custom_text == 1)
+  {
+    // TODO display custom text (esp_command.custom_text_data)
+  }
+  else
+  {
+    display_video(esp_command.eye_azimuth);
+  }
+
   FastLED.show();
 }
