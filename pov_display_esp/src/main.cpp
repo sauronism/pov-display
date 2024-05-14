@@ -10,8 +10,8 @@
     Serial.printf(__VA_ARGS__); \
   }
 
-const byte commRx = 2;
-const byte commTx = 3;
+const byte commRx = D5;
+const byte commTx = D6;
 // Set up a new SoftwareSerial object
 SoftwareSerial teensy_serial(commRx, commTx);
 

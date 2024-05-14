@@ -129,7 +129,7 @@ void updateImageFrame(int frameIndex)
   file.close();
 }
 //----------------------------------------------------------------
-#define esp_serial Serial2
+#define esp_serial Serial4
 
 typedef StaticJsonDocument<256> Packet;
 typedef struct
