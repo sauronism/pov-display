@@ -157,6 +157,7 @@ cmd_t parseJsonCmd(Packet json_data)
   command.eye_azimuth = getIntJsonProperty(json_data, "eye_azimuth");
   command.display_custom_text = getIntJsonProperty(json_data, "display_custom_text");
   command.custom_text_data = getStringJsonProperty(json_data, "custom_text_data");
+  return command;
 }
 
 bool parseJsonString(String pktString, Packet &pkt)
