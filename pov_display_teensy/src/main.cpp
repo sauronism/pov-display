@@ -9,33 +9,60 @@
 #define LOG_SD true
 
 // --- image details --- //
-#define IMAGE_HEIGHT_PIXELS 80  // in pixels
-#define IMAGE_SPREAD_DEGREES 90 // image height in degrees (like vertical Field Of View)
-#define IMAGE_START_ANGLE 40
-#define IMAGE_END_ANGLE IMAGE_START_ANGLE + IMAGE_SPREAD_DEGREES
+// TODO: Increase vertical resolution to 240
+#define IMAGE_HEIGHT_PIXELS 80   // in pixels
+#define IMAGE_SPREAD_DEGREES 150 // image height in degrees (like vertical Field Of View)
+#define IMAGE_START_ANGLE 20
 
 // --- video details --- //
 #define VIDEO_FPS 20
-#define ANIMATION_NUM_FRAMES 3200
+#define ANIMATION_NUM_FRAMES 20
 #define BASE_FILE_PATH "img_"
 
 // --- leds --- //
 FASTLED_USING_NAMESPACE
-#define DATA_PIN 3
-#define CLK_PIN 4
+#define LED1_DATA_PIN 3
+#define LED1_CLK_PIN 4
 #define LED_TYPE APA102
 #define COLOR_ORDER BGR
+// TODO: Number of LEDs is actually 2 * 144 = 288
 #define NUM_LEDS 300
+// The default data rate (12MHz) is too high and we see some signal integrity issues
+// 6 MHz works perfectly fine (but we lose a lot of bandwidth)
+// TODO: We should test and see if 10Mhz or 8MHz works smoothly as well
+#define LED_DATA_RATE DATA_RATE_MHZ(6)
+
+/*
+ * LED Refresh Rate
+ * We need to call FastLED.show() at least once for each *ROW* of our image.
+ * So our effective refresh rate is:
+ * Image height * target FPS * 2 (number of led strips) * spread correction * nyquist sampling theorm
+ * */
+static const auto NUM_LED_STRIPS = 2;
+static const auto MOTOR_RPS_TARGET = 10;
+static const auto DISPLAY_SPREAD_RATIO = 180.0 / IMAGE_SPREAD_DEGREES;
+// Actually anything > 2.0 is enough, but we've got extra data rate to spare
+static const auto NYQUIST_FACTOR = 4;
+static const uint16_t LED_TARGET_REFRESH_RATE = std::ceil(
+    NUM_LED_STRIPS * MOTOR_RPS_TARGET * DISPLAY_SPREAD_RATIO * IMAGE_HEIGHT_PIXELS * NYQUIST_FACTOR);
 
 CRGB ledStrip[NUM_LEDS];
-#define BRIGHTNESS 100
+#define BRIGHTNESS 50
 
 // --- sd reading --- //
-const long imageBufferSize = 3 * NUM_LEDS * IMAGE_HEIGHT_PIXELS;
-byte imageBuffer[imageBufferSize]; // R G B
+// TODO: Read image size directly from file and don't assume it is constant
+CRGB imageFrame[IMAGE_HEIGHT_PIXELS][NUM_LEDS] = {0};
+CRGB blackRow[NUM_LEDS] = {0};
 
-CRGB imageFrame[IMAGE_HEIGHT_PIXELS][NUM_LEDS];
-int frameIndex;
+/*
+ * Image encoding suggestion (not yet implemented)
+ *
+ * | Byte 1..4    | Byte 5..6   | 7..8          | 9 ... 9 + H * W * 3 |
+ * | Magic header | Frame Width | Frame Height  | Bitmap Data         |
+ * | 0x4559_4531  | ------------| --------------| --------------------|
+ *
+ * Better yet: use actual .BMP file format
+ * */
 
 void SDSetup()
 {
@@ -53,13 +80,13 @@ void SDSetup()
 
 void ledsSetup()
 {
-
-  FastLED.addLeds<LED_TYPE, DATA_PIN, CLK_PIN, COLOR_ORDER>(ledStrip, NUM_LEDS); //.setCorrection(TypicalLEDStrip);
-
+  /* TODO: Setup 2 LED strips on different pins
+   * Currently the 2 strips ar driven by the same data channel
+   * */
+  FastLED.addLeds<LED_TYPE, LED1_DATA_PIN, LED1_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip, NUM_LEDS);
   FastLED.setBrightness(BRIGHTNESS);
+  FastLED.setMaxRefreshRate(LED_TARGET_REFRESH_RATE);
 }
-
-SdFile bmpFile; // set filesystem
 
 void updateImageFrame(int frameIndex)
 {
@@ -73,24 +100,15 @@ void updateImageFrame(int frameIndex)
     return;
   }
 
-  int pixelIndex = 0;
   if (file.available())
   {
-    file.read(imageBuffer, imageBufferSize);
-
-    for (int y = 0; y < IMAGE_HEIGHT_PIXELS; y++)
-      for (int x = 0; x < NUM_LEDS; x++)
-      {
-        // Extract RGB values from the buffer
-        byte red = imageBuffer[pixelIndex];
-        byte green = imageBuffer[pixelIndex + 1];
-        byte blue = imageBuffer[pixelIndex + 2];
-
-        CRGB pixel_value = CRGB(red, green, blue);
-        imageFrame[y][x] = pixel_value;
-
-        pixelIndex += 3;
-      }
+    // Read directly into the imageFrame buffer
+    // Only works because the buffer and image are exactly in the same dimensions
+    file.read(imageFrame, std::min((uint64_t)sizeof imageFrame, file.size()));
+  }
+  else if (LOG_SD)
+  {
+    Serial.println(String("SD | Could not open ") + filename);
   }
 
   file.close();
@@ -170,14 +188,17 @@ float encoderGetPosition()
   return angle;
 }
 
-int ledsAngleToYCurser(float angle)
+int ledsAngleToYCurser(const double alpha)
 {
-  angle -= IMAGE_START_ANGLE; // some offset, so 10 degrees is our starting position.
-  angle = constrain(angle, 0, IMAGE_SPREAD_DEGREES);
-
-  int yCureser = (angle / (float)IMAGE_SPREAD_DEGREES) * (float)IMAGE_HEIGHT_PIXELS;
-
-  return yCureser;
+  const auto angleWithOffset = alpha - IMAGE_START_ANGLE; // some offset, so 10 degrees is our starting position.
+  const auto yCursor = (angleWithOffset / IMAGE_SPREAD_DEGREES) * IMAGE_HEIGHT_PIXELS;
+  const auto clamped = constrain(yCursor, 0, IMAGE_HEIGHT_PIXELS);
+  // return -1 to signal an out-of-bounds index.
+  if (yCursor != clamped)
+  {
+    return -1;
+  }
+  return round(yCursor);
 }
 
 void setup()
@@ -195,18 +216,26 @@ void setup()
 
 void loop()
 {
+  static auto frameIndex = 0;
 
   int ledsAngle = encoderGetPosition();
 
-  // EVERY_N_MILLISECONDS(1000 / VIDEO_FPS)
-  // {
-  //   frameIndex++;
-  //   if (frameIndex > ANIMATION_NUM_FRAMES)
-  //     frameIndex = 0;
-  //   // updateImageFrame(frameIndex);
-  // }
+  EVERY_N_MILLISECONDS(1000 / VIDEO_FPS)
+  {
+    frameIndex = (frameIndex + 1) % ANIMATION_NUM_FRAMES;
+    updateImageFrame(frameIndex);
+  }
 
+  // TODO: Move drawing to separate function
   int imageCurserY = ledsAngleToYCurser(ledsAngle);
-  std::copy(std::begin(imageFrame[imageCurserY]), std::end(imageFrame[imageCurserY]), std::begin(ledStrip));
+  // TODO: don't encode out-of-bounds result as -1 and use std::variant or something similar
+  if (imageCurserY == -1)
+  {
+    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip));
+  }
+  else
+  {
+    std::copy(std::begin(imageFrame[imageCurserY]), std::end(imageFrame[imageCurserY]), std::begin(ledStrip));
+  }
   FastLED.show();
 }
