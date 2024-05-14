@@ -3,9 +3,10 @@ import requests
 esp_address = '192.168.4.1'
 # Step 2: Prepare your JSON data
 data = {
-    "x": "10",
-    "y": "20",
-    "z": "30"
+    'display_on': True,
+    'eye_azimuth': 0,
+    'display_custom_text': False,
+    'custom_text_data': "hello world"
 }
 
 # Step 3: Make the POST request
