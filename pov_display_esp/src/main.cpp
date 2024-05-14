@@ -1,6 +1,5 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <ArduinoJson.h>
 #include <SoftwareSerial.h>
 
 // debugging
@@ -11,11 +10,6 @@
     Serial.printf(__VA_ARGS__); \
   }
 
-// command constants
-#define TRUE 1
-#define FALSE 0
-#define NO_OP -1
-
 const byte commRx = 2;
 const byte commTx = 3;
 // Set up a new SoftwareSerial object
@@ -24,20 +18,6 @@ SoftwareSerial teensy_serial(commRx, commTx);
 const char *ssid = "EspAcessPoint";
 const char *password = "12345678";
 ESP8266WebServer server(80);
-
-// void sendCommand(cmd_t command)
-// {
-//   DEBUG_PRINTF("sending command: display_on=%d, eye_azimuth=%d, display_custom_text=%d, custom_text_data=%s\n", command.display_on, command.eye_azimuth, command.display_custom_text, command.custom_text_data.c_str());
-//   JsonDocument doc;
-//   doc["display_on"] = command.display_on;
-//   doc["eye_azimuth"] = command.eye_azimuth;
-//   doc["display_custom_text"] = command.display_custom_text;
-//   doc["custom_text_data"] = command.custom_text_data;
-
-//   String output;
-//   serializeJson(doc, output);
-//   teensy_serial.write(output.c_str());
-// }
 
 void handleJsonClient()
 {
