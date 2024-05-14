@@ -8,3 +8,5 @@
 .vscode/launch.json
 .vscode/ipch
 **venv
+.idea/
+*.DS_Store

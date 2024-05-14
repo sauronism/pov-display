@@ -1,7 +1,13 @@
-import os
+import argparse
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import numpy as np
 from tqdm import tqdm
 from PIL import Image
 
+log = logging.getLogger(__name__)
 input_images_dir = "./output_images"
 
 output_files_dir = "./ardu_images"
@@ -12,37 +18,47 @@ def color_to_hex(r, g, b):
     return (f"0x{c_value:06X}")
 
 
-def img_to_txt_file(input_img_path, output_img_path):
+def img_to_txt_file(input_img_path: Path, output_img_path: Path):
     image = Image.open(input_img_path)
     rgb_im = image.convert('RGB')
-    width, height = image.size
-    index = 0
-    with open(output_img_path, "wb") as output:
-        for y in range(height):
-            for x in range(width):
-                r, g, b = rgb_im.getpixel((x, y))
-                print(f"{index=}, {r=}, {g=}, {b=}")
-                # if you want it like text
-                output.write(r.to_bytes())
-                output.write(g.to_bytes())
-                output.write(b.to_bytes())
-                index += 1
-                # output.write(bytes(pixel[:3]))
-            # output.write("\n".encode()) #if you want it text like
+    arr = np.array(rgb_im).flatten()
+    output_img_path.write_bytes(arr.tobytes())
 
 
-def image_files(dir):
-    images = [file for file in os.listdir(dir) if file.endswith(".bmp")]
-    images.sort()
-    for filepath in tqdm(images, total=len(images), desc="Processing frames", unit="frames"):
-        yield os.path.join(dir, filepath)
+def convert_single_image(progress: tqdm, input_file: Path, output_file: Path) -> None:
+    progress.set_postfix(file=input_file.name)
+    img_to_txt_file(input_file, output_file)
+    progress.update()
+
+
+def images_to_ardufiles(
+        input_dir: Path,
+        output_dir: Path,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    files = list(sorted(input_dir.glob("*.bmp")))
+    with tqdm(total=len(files), desc="Processing images", unit="frames") as progress, ThreadPoolExecutor() as pool:
+        for i, input_image in enumerate(files):
+            output_image = output_dir / f"img_{i}"
+            pool.submit(convert_single_image, progress, input_image, output_image)
 
 
 def main():
-    os.makedirs(output_files_dir, exist_ok=True)
-    for i, img_path in enumerate(image_files(input_images_dir)):
-        output_name = os.path.join(output_files_dir, f"img_{i}")
-        img_to_txt_file(input_img_path=img_path, output_img_path=output_name)
+    logging.basicConfig()
+    parser = argparse.ArgumentParser("Convert images to arduino files")
+    parser.add_argument("--input-dir", type=str, default=input_images_dir)
+    parser.add_argument("--output-dir", type=str, default=output_files_dir)
+    parser.add_argument("--debug", action="store_true")
+
+    args = parser.parse_args()
+
+    if args.debug:
+        log.setLevel(logging.DEBUG)
+
+    return images_to_ardufiles(
+        input_dir=Path(args.input_dir),
+        output_dir=Path(args.output_dir),
+    )
 
 
 if __name__ == "__main__":
