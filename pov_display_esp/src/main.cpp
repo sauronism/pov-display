@@ -46,6 +46,7 @@ void handleJsonClient()
 
 void setup()
 {
+  teensy_serial.begin(115200);
   Serial.begin(115200);
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid, password);
@@ -58,7 +59,15 @@ void setup()
   server.begin();
 }
 
+int heartbeat_interval = 2000;
+unsigned long next_heartbeat_time = 0;
 void loop()
 {
   server.handleClient();
+
+  if (millis() >= next_heartbeat_time)
+  {
+    next_heartbeat_time = millis() + heartbeat_interval;
+    teensy_serial.write(" ");
+  }
 }
