@@ -28,13 +28,13 @@
 
 // --- image details --- //
 // TODO: Increase vertical resolution to 240
-#define IMAGE_HEIGHT_PIXELS 144   // in pixels
-#define IMAGE_SPREAD_DEGREES 150 // image height in degrees (like vertical Field Of View)
-#define IMAGE_START_ANGLE 20
+#define IMAGE_HEIGHT_PIXELS 128   // in pixels
+#define IMAGE_SPREAD_DEGREES 120 // image height in degrees (like vertical Field Of View)
+#define IMAGE_START_ANGLE 30
 
 // --- video details --- //
 #define VIDEO_FPS 20
-#define ANIMATION_NUM_FRAMES 20
+#define ANIMATION_NUM_FRAMES 2400
 #define BASE_FILE_PATH "vid_center/img_"
 
 // --- leds --- //
@@ -101,9 +101,9 @@ void ledsSetup() {
    * Currently the 2 strips ar driven by the same data channel
    * */
   FastLED.addLeds<LED_TYPE, LED1_DATA_PIN, LED1_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip1, NUM_LEDS);
-  FastLED.addLeds<LED_TYPE, LED2_DATA_PIN, LED2_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip1, NUM_LEDS);
+  FastLED.addLeds<LED_TYPE, LED2_DATA_PIN, LED2_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip2, NUM_LEDS);
   FastLED.setBrightness(BRIGHTNESS);
-  FastLED.setMaxRefreshRate(LED_TARGET_REFRESH_RATE);
+  FastLED.setMaxRefreshRate(std::numeric_limits<uint16_t>::max());
 }
 
 void updateImageFrame(const char *filename) {
@@ -253,9 +253,8 @@ float encoderGetPosition() {
   // calc position
   precise_millis = micros() / 1000.0f;
   timeFromLastTick = precise_millis - encoder.tickTime;
-  angle = degPerMilli * timeFromLastTick;
-  angle = fmod(angle, 180);
-  return angle;
+  const auto angle = degPerMilli * timeFromLastTick;
+  return fmod(angle, (float) 360.0);
 }
 
 std::optional<int> ledsAngleToYCurser(const double alpha) {
@@ -275,22 +274,25 @@ auto display_video(int azimuth) {
 
   const auto encoderPosition = encoderGetPosition();
 
-  EVERY_N_MILLISECONDS(100) {
-    frameIndex = (frameIndex + 1) % 3200;
-    snprintf(filename, sizeof(filename), "vid_center/frame_%08d.bin", frameIndex);
+  EVERY_N_MILLISECONDS(50) {
+    frameIndex = (frameIndex + 1) % ANIMATION_NUM_FRAMES;
+    snprintf(filename, sizeof(filename), "out/frame_%08d.bin", frameIndex);
     updateImageFrame(filename);
   }
 
   // TODO: Move drawing to separate function
-  const auto y_cursor_opt = ledsAngleToYCurser(encoderPosition);
+  const float angle = fmod(encoderPosition, 180);
+  const auto y_cursor_opt = ledsAngleToYCurser(angle);
   // TODO: don't encode out-of-bounds result as -1 and use std::variant or something similar
   if (!y_cursor_opt) {
     std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip1));
-//    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip2));
+    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip2));
   } else {
     const auto cursor = y_cursor_opt.value();
-    std::copy(std::begin(imageFrame[cursor]), std::end(imageFrame[cursor]), ledStrip1);
-//    std::copy(std::begin(imageFrame[cursor]), std::end(imageFrame[cursor]), ledStrip2);
+    const auto target = angle != encoderPosition ? ledStrip1 : ledStrip2;
+    const auto other = angle != encoderPosition ? ledStrip2 : ledStrip1;
+    std::copy(std::begin(imageFrame[cursor]), std::end(imageFrame[cursor]), target);
+    std::copy(std::begin(blackRow), std::end(blackRow), other);
   }
 }
 
@@ -341,7 +343,7 @@ void setup() {
   encoderSetup(); // interrupt pin definition
 
   // for tests only - read only one frame
-  updateImageFrame("vid_center/frame_00000000.bin");
+  updateImageFrame("out/frame_00000000.bin");
   Serial.printf("setup end\n");
 }
 
