@@ -32,7 +32,7 @@
 // --- video details --- //
 #define VIDEO_FPS 20
 #define ANIMATION_NUM_FRAMES 20
-#define BASE_FILE_PATH "img_"
+#define BASE_FILE_PATH "vid_center/img_"
 
 // --- leds --- //
 FASTLED_USING_NAMESPACE
@@ -106,11 +106,11 @@ void ledsSetup()
   FastLED.setMaxRefreshRate(LED_TARGET_REFRESH_RATE);
 }
 
-void updateImageFrame(int frameIndex)
+void updateImageFrame(const char *filename)
 {
-  String filename = BASE_FILE_PATH + String(frameIndex);
+
   // Open the binary file
-  File file = SD.open(filename.c_str(), FILE_READ);
+  File file = SD.open(filename, FILE_READ);
 
   if (!file)
   {
@@ -120,6 +120,7 @@ void updateImageFrame(int frameIndex)
 
   if (file.available())
   {
+    Serial.printf("Playing: %s\n", filename);
     // Read directly into the imageFrame buffer
     // Only works because the buffer and image are exactly in the same dimensions
     file.read(imageFrame, std::min((uint64_t)sizeof imageFrame, file.size()));
@@ -294,13 +295,15 @@ int ledsAngleToYCurser(const double alpha)
 void display_video(int azimuth)
 {
   static auto frameIndex = 0;
+  static char filename[256];
 
-  EncoderPosition encoderPosition = encoderGetPosition();
+  const auto encoderPosition = encoderGetPosition();
 
   EVERY_N_MILLISECONDS(1000 / VIDEO_FPS)
   {
-    frameIndex = (frameIndex + 1) % ANIMATION_NUM_FRAMES;
-    updateImageFrame(frameIndex);
+    frameIndex = (frameIndex + 1) % 3200;
+    snprintf(filename, sizeof(filename), "vid_center/frame_%08d.bin", frameIndex);
+    updateImageFrame(filename);
   }
 
   // TODO: Move drawing to separate function
@@ -383,23 +386,23 @@ void setup()
   encoderSetup(); // interrupt pin definition
 
   // for tests only - read only one frame
-  updateImageFrame(0);
+  updateImageFrame("vid_center/frame_00000000.bin");
   Serial.printf("setup end\n");
 }
 
 cmd_t esp_command;
 void loop()
 {
-  read_esp_data(esp_command);
-  if (esp_command.esp_connected)
-  {
-    Serial.printf("display is %d\n", bool(esp_command.display_on));
-    esp_controller_loop(esp_command);
-  }
-  else
-  {
-    display_video(0);
-  }
+//  read_esp_data(esp_command);
+//  if (esp_command.esp_connected)
+//  {
+//    Serial.printf("display is %d\n", bool(esp_command.display_on));
+//    esp_controller_loop(esp_command);
+//  }
+//  else
+//  {
+//  }
+  display_video(0);
 
   FastLED.show();
 }
