@@ -81,13 +81,11 @@ CRGB blackRow[NUM_LEDS] = {0};
  * Better yet: use actual .BMP file format
  * */
 
-void SDSetup()
-{
+void SDSetup() {
   if (LOG_SD)
     Serial.print("SD | Initializing filesystem...");
 
-  if (!SD.begin(BUILTIN_SDCARD))
-  {
+  if (!SD.begin(BUILTIN_SDCARD)) {
     Serial.println("\t begin() failed!!!");
     return;
   }
@@ -95,8 +93,7 @@ void SDSetup()
     Serial.println("\t initialized!!");
 }
 
-void ledsSetup()
-{
+void ledsSetup() {
   /* TODO: Setup 2 LED strips on different pins
    * Currently the 2 strips ar driven by the same data channel
    * */
@@ -106,27 +103,22 @@ void ledsSetup()
   FastLED.setMaxRefreshRate(LED_TARGET_REFRESH_RATE);
 }
 
-void updateImageFrame(const char *filename)
-{
+void updateImageFrame(const char *filename) {
 
   // Open the binary file
   File file = SD.open(filename, FILE_READ);
 
-  if (!file)
-  {
+  if (!file) {
     Serial.printf("SD | Failed to open file for reading\n");
     return;
   }
 
-  if (file.available())
-  {
+  if (file.available()) {
     Serial.printf("Playing: %s\n", filename);
     // Read directly into the imageFrame buffer
     // Only works because the buffer and image are exactly in the same dimensions
-    file.read(imageFrame, std::min((uint64_t)sizeof imageFrame, file.size()));
-  }
-  else if (LOG_SD)
-  {
+    file.read(imageFrame, std::min((uint64_t) sizeof imageFrame, file.size()));
+  } else if (LOG_SD) {
     Serial.println(String("SD | Could not open ") + filename);
   }
 
@@ -136,8 +128,7 @@ void updateImageFrame(const char *filename)
 #define esp_serial Serial4
 
 typedef StaticJsonDocument<256> Packet;
-typedef struct
-{
+typedef struct {
   int display_on;
   int eye_azimuth;
   int display_custom_text;
@@ -145,18 +136,15 @@ typedef struct
   bool esp_connected;
 } cmd_t;
 
-short getIntJsonProperty(Packet pkt, char *propertyName)
-{
+short getIntJsonProperty(Packet pkt, char *propertyName) {
   return pkt.containsKey(propertyName) ? pkt[propertyName].as<short>() : NO_OP;
 }
 
-String getStringJsonProperty(Packet pkt, char *propertyName)
-{
+String getStringJsonProperty(Packet pkt, char *propertyName) {
   return pkt.containsKey(propertyName) ? pkt[propertyName].as<String>() : "";
 }
 
-bool parseJsonCmd(Packet json_data, cmd_t &command)
-{
+bool parseJsonCmd(Packet json_data, cmd_t &command) {
   command.display_on = getIntJsonProperty(json_data, "display_on");
   command.eye_azimuth = getIntJsonProperty(json_data, "eye_azimuth");
   command.display_custom_text = getIntJsonProperty(json_data, "display_custom_text");
@@ -164,19 +152,16 @@ bool parseJsonCmd(Packet json_data, cmd_t &command)
   return true;
 }
 
-bool parseJsonString(String pktString, Packet &pkt)
-{
+bool parseJsonString(String pktString, Packet &pkt) {
   DeserializationError error = deserializeJson(pkt, pktString);
-  if (error)
-  {
+  if (error) {
     DEBUG_PRINTF("Error parsing JSON: %s", error);
     return false;
   }
   return true;
 }
 
-bool read_esp_command(cmd_t &command)
-{
+bool read_esp_command(cmd_t &command) {
   Packet json_packet;
 
   String pktString = esp_serial.readStringUntil('\0');
@@ -187,8 +172,7 @@ bool read_esp_command(cmd_t &command)
     return false;
 
   Serial.printf("parsing packet");
-  if (parseJsonString(pktString, json_packet))
-  {
+  if (parseJsonString(pktString, json_packet)) {
     parseJsonCmd(json_packet, command);
     Serial.printf("command display_on is %d", command.display_on);
   }
@@ -202,8 +186,7 @@ bool read_esp_command(cmd_t &command)
 #define ENCODER_INTERRUPT_MODE FALLING
 #define MIN_ACCEPTABLE_ENCODER_TICK_INTERVAL 60
 
-typedef struct
-{
+typedef struct {
   unsigned long tickTime;
   unsigned long oldTickTime;
   unsigned long minTimeForNextTick;
@@ -212,11 +195,9 @@ typedef struct
 
 EncoderData encoder = {0, 0, 0, 0};
 
-void encoderInterrupt()
-{
+void encoderInterrupt() {
   unsigned long _current_time = millis();
-  if (_current_time < encoder.minTimeForNextTick)
-  {
+  if (_current_time < encoder.minTimeForNextTick) {
     return;
   }
 
@@ -225,21 +206,18 @@ void encoderInterrupt()
   encoder.minTimeForNextTick = _current_time + MIN_ACCEPTABLE_ENCODER_TICK_INTERVAL;
 }
 
-void encoderSetup()
-{
+void encoderSetup() {
   pinMode(ENCODER_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENCODER_PIN), encoderInterrupt, ENCODER_INTERRUPT_MODE);
 }
 
-class LowPassFilter
-{
+class LowPassFilter {
 public:
-  LowPassFilter(float alpha)
-  {
+  LowPassFilter(float alpha) {
     this->_alpha = alpha;
   }
-  float apply(float x)
-  {
+
+  float apply(float x) {
     x = (x * _alpha) + (_oldValue * (1 - _alpha));
     _oldValue = x;
     return x;
@@ -256,14 +234,12 @@ double precise_millis;
 float timeFromLastTick;
 float degPerMilli;
 
-typedef struct
-{
+typedef struct {
   int angle;
   int workingLedStrip;
 } EncoderPosition;
 
-EncoderPosition encoderGetPosition()
-{
+EncoderPosition encoderGetPosition() {
   EncoderPosition position;
   // calc speed
   encoder.millisPerRotation = encoderSpdLP.apply(encoder.tickTime - encoder.oldTickTime);
@@ -279,21 +255,18 @@ EncoderPosition encoderGetPosition()
   return position;
 }
 
-int ledsAngleToYCurser(const double alpha)
-{
+int ledsAngleToYCurser(const double alpha) {
   const auto angleWithOffset = alpha - IMAGE_START_ANGLE; // some offset, so 10 degrees is our starting position.
   const auto yCursor = (angleWithOffset / IMAGE_SPREAD_DEGREES) * IMAGE_HEIGHT_PIXELS;
   const auto clamped = constrain(yCursor, 0, IMAGE_HEIGHT_PIXELS);
   // return -1 to signal an out-of-bounds index.
-  if (yCursor != clamped)
-  {
+  if (yCursor != clamped) {
     return -1;
   }
   return round(yCursor);
 }
 
-void display_video(int azimuth)
-{
+void display_video(int azimuth) {
   static auto frameIndex = 0;
   static char filename[256];
 
@@ -309,21 +282,15 @@ void display_video(int azimuth)
   // TODO: Move drawing to separate function
   int imageCurserY = ledsAngleToYCurser(encoderPosition.angle);
   // TODO: don't encode out-of-bounds result as -1 and use std::variant or something similar
-  if (encoderPosition.workingLedStrip == 0)
-  {
+  if (encoderPosition.workingLedStrip == 0) {
     auto workingLedStrip = encoderPosition.workingLedStrip == 0 ? std::begin(ledStrip1) : std::begin(ledStrip2);
 
-    if (imageCurserY == -1)
-    {
+    if (imageCurserY == -1) {
       std::copy(std::begin(blackRow), std::end(blackRow), workingLedStrip);
-    }
-    else
-    {
+    } else {
       std::copy(std::begin(imageFrame[imageCurserY]), std::end(imageFrame[imageCurserY]), workingLedStrip);
     }
-  }
-  else
-  {
+  } else {
     auto offLedStrip = encoderPosition.workingLedStrip == 0 ? std::begin(ledStrip2) : std::begin(ledStrip1);
     std::copy(std::begin(blackRow), std::end(blackRow), offLedStrip);
   }
@@ -333,12 +300,10 @@ bool esp_connected = false;
 unsigned long time_considered_as_disconnection = 0;
 const int esp_dead_timeout = 5000;
 
-bool read_esp_data(cmd_t &esp_packet)
-{
+bool read_esp_data(cmd_t &esp_packet) {
   bool valid_packet = 0;
 
-  if (esp_serial.available())
-  {
+  if (esp_serial.available()) {
     time_considered_as_disconnection = millis() + esp_dead_timeout;
     Serial.println("received command");
     esp_connected = true;
@@ -346,8 +311,7 @@ bool read_esp_data(cmd_t &esp_packet)
     Serial.printf("packet is %d", valid_packet);
   }
 
-  if (esp_connected && millis() > time_considered_as_disconnection)
-  {
+  if (esp_connected && millis() > time_considered_as_disconnection) {
     esp_connected = false;
     Serial.printf("esp disconnect");
   }
@@ -355,28 +319,21 @@ bool read_esp_data(cmd_t &esp_packet)
   return valid_packet;
 }
 
-void esp_controller_loop(cmd_t esp_command)
-{
+void esp_controller_loop(cmd_t esp_command) {
 
-  if (esp_command.display_on != 1)
-  {
+  if (esp_command.display_on != 1) {
     fill_solid(ledStrip1, NUM_LEDS, 0);
     fill_solid(ledStrip2, NUM_LEDS, 0);
-  }
-  else if (esp_command.display_custom_text == 1)
-  {
+  } else if (esp_command.display_custom_text == 1) {
     // TODO display custom text (esp_command.custom_text_data)
-  }
-  else
-  {
+  } else {
     Serial.printf("running esp video command");
     esp_command.eye_azimuth = 0;
     display_video(esp_command.eye_azimuth);
   }
 }
 
-void setup()
-{
+void setup() {
   Serial.begin(115200);
   esp_serial.begin(115200);
   delay(3000); // 3 second delay for good measure
@@ -391,8 +348,8 @@ void setup()
 }
 
 cmd_t esp_command;
-void loop()
-{
+
+void loop() {
 //  read_esp_data(esp_command);
 //  if (esp_command.esp_connected)
 //  {
