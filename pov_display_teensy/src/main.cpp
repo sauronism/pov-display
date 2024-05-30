@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <SoftwareSerial.h>
 #include <ArduinoJson.h>
+#include <algorithm>
+#include <numeric>
+#include <optional>
 
 // debugging
 #define DEBUG_ENABLED true
@@ -25,7 +28,7 @@
 
 // --- image details --- //
 // TODO: Increase vertical resolution to 240
-#define IMAGE_HEIGHT_PIXELS 80   // in pixels
+#define IMAGE_HEIGHT_PIXELS 144   // in pixels
 #define IMAGE_SPREAD_DEGREES 150 // image height in degrees (like vertical Field Of View)
 #define IMAGE_START_ANGLE 20
 
@@ -48,7 +51,7 @@ FASTLED_USING_NAMESPACE
 // TODO: We should test and see if 10Mhz or 8MHz works smoothly as well
 #define LED_DATA_RATE DATA_RATE_MHZ(6)
 
-#define NUM_LEDS 300
+#define NUM_LEDS 288
 CRGB ledStrip1[NUM_LEDS];
 CRGB ledStrip2[NUM_LEDS];
 #define BRIGHTNESS 50
@@ -69,7 +72,7 @@ static const uint16_t LED_TARGET_REFRESH_RATE = 10000; // std::ceil(NUM_LED_STRI
 // --- sd reading --- //
 // TODO: Read image size directly from file and don't assume it is constant
 CRGB imageFrame[IMAGE_HEIGHT_PIXELS][NUM_LEDS] = {0};
-CRGB blackRow[NUM_LEDS] = {0};
+const CRGB blackRow[NUM_LEDS] = {0};
 
 /*
  * Image encoding suggestion (not yet implemented)
@@ -98,7 +101,7 @@ void ledsSetup() {
    * Currently the 2 strips ar driven by the same data channel
    * */
   FastLED.addLeds<LED_TYPE, LED1_DATA_PIN, LED1_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip1, NUM_LEDS);
-  FastLED.addLeds<LED_TYPE, LED2_DATA_PIN, LED2_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip2, NUM_LEDS);
+  FastLED.addLeds<LED_TYPE, LED2_DATA_PIN, LED2_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip1, NUM_LEDS);
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.setMaxRefreshRate(LED_TARGET_REFRESH_RATE);
 }
@@ -114,7 +117,7 @@ void updateImageFrame(const char *filename) {
   }
 
   if (file.available()) {
-    Serial.printf("Playing: %s\n", filename);
+//    Serial.printf("Playing: %s\n", filename);
     // Read directly into the imageFrame buffer
     // Only works because the buffer and image are exactly in the same dimensions
     file.read(imageFrame, std::min((uint64_t) sizeof imageFrame, file.size()));
@@ -185,31 +188,16 @@ bool read_esp_command(cmd_t &command) {
 #define ENCODER_ACTIVE_STATE LOW
 #define ENCODER_INTERRUPT_MODE FALLING
 #define MIN_ACCEPTABLE_ENCODER_TICK_INTERVAL 60
+#define MAX_ACCEPTABLE_ENCODER_TICK_INTERVAL 1000
 
 typedef struct {
   unsigned long tickTime;
   unsigned long oldTickTime;
   unsigned long minTimeForNextTick;
+  unsigned long maxTimeForNextTick;
   float millisPerRotation;
 } EncoderData;
 
-EncoderData encoder = {0, 0, 0, 0};
-
-void encoderInterrupt() {
-  unsigned long _current_time = millis();
-  if (_current_time < encoder.minTimeForNextTick) {
-    return;
-  }
-
-  encoder.oldTickTime = encoder.tickTime;
-  encoder.tickTime = _current_time;
-  encoder.minTimeForNextTick = _current_time + MIN_ACCEPTABLE_ENCODER_TICK_INTERVAL;
-}
-
-void encoderSetup() {
-  pinMode(ENCODER_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN), encoderInterrupt, ENCODER_INTERRUPT_MODE);
-}
 
 class LowPassFilter {
 public:
@@ -228,71 +216,81 @@ private:
   float _oldValue;
 };
 
-LowPassFilter encoderSpdLP(0.001);
+LowPassFilter encoderSpdLP(0.2);
+
+EncoderData encoder = {0, 0, 0, 0};
+
+void encoderInterrupt() {
+  unsigned long _current_time = millis();
+  if (_current_time < encoder.minTimeForNextTick) {
+    return;
+  }
+
+  encoder.oldTickTime = encoder.tickTime;
+  encoder.tickTime = _current_time;
+  encoder.minTimeForNextTick = _current_time + MIN_ACCEPTABLE_ENCODER_TICK_INTERVAL;
+  encoder.maxTimeForNextTick = _current_time + MAX_ACCEPTABLE_ENCODER_TICK_INTERVAL;
+  if (_current_time < encoder.maxTimeForNextTick) {
+    encoder.millisPerRotation = encoderSpdLP.apply(encoder.tickTime - encoder.oldTickTime);
+  }
+}
+
+void encoderSetup() {
+  pinMode(ENCODER_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN), encoderInterrupt, ENCODER_INTERRUPT_MODE);
+}
+
+
 float angle = 0;
 double precise_millis;
 float timeFromLastTick;
 float degPerMilli;
 
-typedef struct {
-  int angle;
-  int workingLedStrip;
-} EncoderPosition;
-
-EncoderPosition encoderGetPosition() {
-  EncoderPosition position;
+float encoderGetPosition() {
   // calc speed
-  encoder.millisPerRotation = encoderSpdLP.apply(encoder.tickTime - encoder.oldTickTime);
   degPerMilli = 360.0f / encoder.millisPerRotation;
 
   // calc position
   precise_millis = micros() / 1000.0f;
   timeFromLastTick = precise_millis - encoder.tickTime;
   angle = degPerMilli * timeFromLastTick;
-  position.workingLedStrip = angle <= 180;
-  position.angle = fmod(angle, 180);
-
-  return position;
+  angle = fmod(angle, 180);
+  return angle;
 }
 
-int ledsAngleToYCurser(const double alpha) {
+std::optional<int> ledsAngleToYCurser(const double alpha) {
   const auto angleWithOffset = alpha - IMAGE_START_ANGLE; // some offset, so 10 degrees is our starting position.
   const auto yCursor = (angleWithOffset / IMAGE_SPREAD_DEGREES) * IMAGE_HEIGHT_PIXELS;
   const auto clamped = constrain(yCursor, 0, IMAGE_HEIGHT_PIXELS);
   // return -1 to signal an out-of-bounds index.
   if (yCursor != clamped) {
-    return -1;
+    return {};
   }
   return round(yCursor);
 }
 
-void display_video(int azimuth) {
+auto display_video(int azimuth) {
   static auto frameIndex = 0;
   static char filename[256];
 
   const auto encoderPosition = encoderGetPosition();
 
-  EVERY_N_MILLISECONDS(1000 / VIDEO_FPS)
-  {
+  EVERY_N_MILLISECONDS(100) {
     frameIndex = (frameIndex + 1) % 3200;
     snprintf(filename, sizeof(filename), "vid_center/frame_%08d.bin", frameIndex);
     updateImageFrame(filename);
   }
 
   // TODO: Move drawing to separate function
-  int imageCurserY = ledsAngleToYCurser(encoderPosition.angle);
+  const auto y_cursor_opt = ledsAngleToYCurser(encoderPosition);
   // TODO: don't encode out-of-bounds result as -1 and use std::variant or something similar
-  if (encoderPosition.workingLedStrip == 0) {
-    auto workingLedStrip = encoderPosition.workingLedStrip == 0 ? std::begin(ledStrip1) : std::begin(ledStrip2);
-
-    if (imageCurserY == -1) {
-      std::copy(std::begin(blackRow), std::end(blackRow), workingLedStrip);
-    } else {
-      std::copy(std::begin(imageFrame[imageCurserY]), std::end(imageFrame[imageCurserY]), workingLedStrip);
-    }
+  if (!y_cursor_opt) {
+    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip1));
+//    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip2));
   } else {
-    auto offLedStrip = encoderPosition.workingLedStrip == 0 ? std::begin(ledStrip2) : std::begin(ledStrip1);
-    std::copy(std::begin(blackRow), std::end(blackRow), offLedStrip);
+    const auto cursor = y_cursor_opt.value();
+    std::copy(std::begin(imageFrame[cursor]), std::end(imageFrame[cursor]), ledStrip1);
+//    std::copy(std::begin(imageFrame[cursor]), std::end(imageFrame[cursor]), ledStrip2);
   }
 }
 
@@ -360,6 +358,11 @@ void loop() {
 //  {
 //  }
   display_video(0);
+
+  // Uncomment to simulate interrupts
+//  EVERY_N_MILLISECONDS(100) {
+//    encoderInterrupt();
+//  }
 
   FastLED.show();
 }
