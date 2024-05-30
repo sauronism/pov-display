@@ -1,26 +1,33 @@
-import os
-import cv2
-from video_utils import VideoReader
+from itertools import count
+from pathlib import Path
 
-output_folder = 'output_images/'
+import cv2
+from tqdm import tqdm
+
+
+output_folder = 'out/'
 
 video_reader_settings = {
     "video_path": "sauron.mp4",
-    "resize": (300, 80),
+    "resize": (288, 128),
     "duration_seconds": 160,
-    "fps": 20,
 }
 
 
 def main():
-    os.makedirs(output_folder, exist_ok=True)
+    out_dir = Path(output_folder)
+    out_dir.mkdir(exist_ok=True)
+    cap = cv2.VideoCapture(video_reader_settings["video_path"])
 
-    with VideoReader(**video_reader_settings) as video_reader:
-        for frame_index, frame in enumerate(video_reader.iterate_with_progress):
-            # for now, only save the file.
-            file_name = f"frame_{frame_index}.bmp"
-            output_path = os.path.join(output_folder, file_name)
-            cv2.imwrite(output_path, frame)
+    for frame_index in tqdm(count()):
+        ok, frame = cap.read()
+        if not ok:
+            break
+        # for now, only save the file.
+        rgb_frame = cv2.cvtColor(frame, code=cv2.COLOR_BGR2RGB)
+        rgb_frame = cv2.resize(rgb_frame, video_reader_settings["resize"])
+        output_path = out_dir / f"frame_{frame_index:08d}.bin"
+        output_path.write_bytes(rgb_frame)
 
 
 if __name__ == "__main__":
