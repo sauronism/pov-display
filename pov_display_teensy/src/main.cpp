@@ -34,55 +34,27 @@
 
 // --- video details --- //
 #define VIDEO_FPS 20
-#define ANIMATION_NUM_FRAMES 2400
+#define ANIMATION_NUM_FRAMES 667
 #define BASE_FILE_PATH "vid_center/img_"
 
 // --- leds --- //
 FASTLED_USING_NAMESPACE
-#define LED2_CLK_PIN 4
-#define LED2_DATA_PIN 3
-#define LED1_CLK_PIN 7
-#define LED1_DATA_PIN 6
+#define LED1_CLK_PIN SPI_CLOCK
+#define LED1_DATA_PIN SPI_DATA
 #define LED_TYPE APA102
 #define COLOR_ORDER BGR
-// TODO: Number of LEDs is actually 2 * 144 = 288
-// The default data rate (12MHz) is too high and we see some signal integrity issues
-// 6 MHz works perfectly fine (but we lose a lot of bandwidth)
-// TODO: We should test and see if 10Mhz or 8MHz works smoothly as well
-#define LED_DATA_RATE DATA_RATE_MHZ(6)
+
+// 8 MHz is the fastest rate we can sustain before we lose signal integrity
+#define LED_DATA_RATE DATA_RATE_MHZ(8)
 
 #define NUM_LEDS 288
-CRGB ledStrip1[NUM_LEDS];
-CRGB ledStrip2[NUM_LEDS];
-#define BRIGHTNESS 50
-
-/*
- * LED Refresh Rate
- * We need to call FastLED.show() at least once for each *ROW* of our image.
- * So our effective refresh rate is:Á
- * Image height * target FPS * 2 (number of led strips) * spread correction * nyquist sampling theorm
- * */
-static const auto NUM_LED_STRIPS = 2;
-static const auto MOTOR_RPS_TARGET = 10;
-static const auto DISPLAY_SPREAD_RATIO = 180.0 / IMAGE_SPREAD_DEGREES;
-// Actually anything > 2.0 is enough, but we've got extra data rate to spare
-static const auto NYQUIST_FACTOR = 4;
-static const uint16_t LED_TARGET_REFRESH_RATE = 10000; // std::ceil(NUM_LED_STRIPS * MOTOR_RPS_TARGET * DISPLAY_SPREAD_RATIO * IMAGE_HEIGHT_PIXELS * NYQUIST_FACTOR);
+CRGB ledStrip[NUM_LEDS];
+#define BRIGHTNESS 150
 
 // --- sd reading --- //
 // TODO: Read image size directly from file and don't assume it is constant
 CRGB imageFrame[IMAGE_HEIGHT_PIXELS][NUM_LEDS] = {0};
 const CRGB blackRow[NUM_LEDS] = {0};
-
-/*
- * Image encoding suggestion (not yet implemented)
- *
- * | Byte 1..4    | Byte 5..6   | 7..8          | 9 ... 9 + H * W * 3 |
- * | Magic header | Frame Width | Frame Height  | Bitmap Data         |
- * | 0x4559_4531  | ------------| --------------| --------------------|
- *
- * Better yet: use actual .BMP file format
- * */
 
 void SDSetup() {
   if (LOG_SD)
@@ -97,13 +69,10 @@ void SDSetup() {
 }
 
 void ledsSetup() {
-  /* TODO: Setup 2 LED strips on different pins
-   * Currently the 2 strips ar driven by the same data channel
-   * */
-  FastLED.addLeds<LED_TYPE, LED1_DATA_PIN, LED1_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip1, NUM_LEDS);
-  FastLED.addLeds<LED_TYPE, LED2_DATA_PIN, LED2_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip2, NUM_LEDS);
+  FastLED.addLeds<LED_TYPE, LED1_DATA_PIN, LED1_CLK_PIN, COLOR_ORDER, LED_DATA_RATE>(ledStrip, NUM_LEDS)
+      .setCorrection(TypicalLEDStrip);
   FastLED.setBrightness(BRIGHTNESS);
-  FastLED.setMaxRefreshRate(std::numeric_limits<uint16_t>::max());
+  FastLED.setMaxRefreshRate(0, false);  // No upper limit on FPS
 }
 
 void updateImageFrame(const char *filename) {
@@ -268,31 +237,34 @@ std::optional<int> ledsAngleToYCurser(const double alpha) {
   return round(yCursor);
 }
 
-auto display_video(int azimuth) {
+static const char *base_dirs[] = {
+    "vid_center",
+    "vid_left",
+    "vid_strong_left",
+    "vid_right",
+    "vid_strong_right",
+};
+
+auto display_video(int video_index) {
   static auto frameIndex = 0;
   static char filename[256];
 
   const auto encoderPosition = encoderGetPosition();
 
-  EVERY_N_MILLISECONDS(50) {
+  EVERY_N_MILLISECONDS(200) {
     frameIndex = (frameIndex + 1) % ANIMATION_NUM_FRAMES;
-    snprintf(filename, sizeof(filename), "out/frame_%08d.bin", frameIndex);
+    snprintf(filename, sizeof(filename), "%s/frame_%08d.bin", base_dirs[video_index], frameIndex);
     updateImageFrame(filename);
   }
 
   // TODO: Move drawing to separate function
   const float angle = fmod(encoderPosition, 180);
   const auto y_cursor_opt = ledsAngleToYCurser(angle);
-  // TODO: don't encode out-of-bounds result as -1 and use std::variant or something similar
   if (!y_cursor_opt) {
-    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip1));
-    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip2));
+    std::copy(std::begin(blackRow), std::end(blackRow), std::begin(ledStrip));
   } else {
     const auto cursor = y_cursor_opt.value();
-    const auto target = angle != encoderPosition ? ledStrip1 : ledStrip2;
-    const auto other = angle != encoderPosition ? ledStrip2 : ledStrip1;
-    std::copy(std::begin(imageFrame[cursor]), std::end(imageFrame[cursor]), target);
-    std::copy(std::begin(blackRow), std::end(blackRow), other);
+    std::copy(std::begin(imageFrame[cursor]), std::end(imageFrame[cursor]), ledStrip);
   }
 }
 
@@ -322,8 +294,7 @@ bool read_esp_data(cmd_t &esp_packet) {
 void esp_controller_loop(cmd_t esp_command) {
 
   if (esp_command.display_on != 1) {
-    fill_solid(ledStrip1, NUM_LEDS, 0);
-    fill_solid(ledStrip2, NUM_LEDS, 0);
+    fill_solid(ledStrip, NUM_LEDS, 0);
   } else if (esp_command.display_custom_text == 1) {
     // TODO display custom text (esp_command.custom_text_data)
   } else {
@@ -349,6 +320,8 @@ void setup() {
 
 cmd_t esp_command;
 
+int video_index = 0;
+
 void loop() {
 //  read_esp_data(esp_command);
 //  if (esp_command.esp_connected)
@@ -359,7 +332,13 @@ void loop() {
 //  else
 //  {
 //  }
-  display_video(0);
+
+  EVERY_N_SECONDS(60) {
+    video_index = (video_index + 1) > 4 ? 0 : video_index + 1;
+    Serial.printf("video file is %d\n", base_dirs[video_index]);
+  }
+
+  display_video(video_index);
 
   // Uncomment to simulate interrupts
 //  EVERY_N_MILLISECONDS(100) {
