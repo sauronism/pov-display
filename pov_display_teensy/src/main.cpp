@@ -245,6 +245,10 @@ static const char *base_dirs[] = {
 //    "vid_strong_left",
     "vid_right",
 //    "vid_strong_right",
+    "eye_loop",
+    "this_is_fine",
+    "nyan_cat",
+    "poop_emoji",
 };
 
 auto display_video(int video_index) {
@@ -293,34 +297,6 @@ bool read_esp_data(cmd_t &esp_packet) {
   return valid_packet;
 }
 
-void esp_controller_loop(cmd_t esp_command) {
-  EVERY_N_SECONDS(2) {
-    Serial.printf("Command: az %d\n", esp_command.eye_azimuth);
-  }
-  if (esp_command.display_on != 1) {
-    fill_solid(ledStrip, NUM_LEDS, 0);
-  } else if (esp_command.display_custom_text == 1) {
-    // TODO display custom text (esp_command.custom_text_data)
-  } else {
-//    Serial.printf("running esp video command\n");
-//    esp_command.eye_azimuth = 0;
-    if (esp_command.eye_azimuth >= 0 && esp_command.eye_azimuth < 36) {
-      display_video(2);
-    } else if (esp_command.eye_azimuth >= 36 && esp_command.eye_azimuth < 72) {
-      display_video(1);
-    } else if (esp_command.eye_azimuth >= 72 && esp_command.eye_azimuth < 108) {
-      display_video(0);
-    } else if (esp_command.eye_azimuth >= 108 && esp_command.eye_azimuth < 144) {
-      display_video(3);
-    } else if (esp_command.eye_azimuth >= 144 && esp_command.eye_azimuth < 180) {
-      display_video(5);
-    } else {
-      display_video(0);
-    }
-
-  }
-}
-
 void setup() {
   Serial.begin(115200);
   esp_serial.begin(115200);
@@ -345,13 +321,17 @@ void loop() {
 //    Serial.printf("display is %d\n", bool(esp_command.display_on));
 //    esp_controller_loop(esp_command);
 //  } else {
-    EVERY_N_SECONDS(120) {
-      const auto next_index = random(10);
-      video_index = next_index > 3 ? 0 : next_index;
-      video_index = (video_index + 1) > 4 ? 0 : video_index + 1;
-      Serial.printf("video file is %d\n", base_dirs[video_index]);
-    }
-    display_video(video_index);
+  EVERY_N_SECONDS(120) {
+    const auto should_troll = random(10) >= 8;
+    const auto should_display_center_eye = random(10) < 8;
+    const auto next_index =
+        should_troll ? random(4, 8) :
+        should_display_center_eye ? 0
+                                  : random(1, 4);
+
+    video_index = next_index;
+  }
+  display_video(video_index);
 //  }
 
   // Uncomment to simulate interrupts
