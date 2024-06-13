@@ -17,6 +17,8 @@
   {                             \
     Serial.printf(__VA_ARGS__); \
   }
+#define DEBUG_SIMULATE_INTERRUPTS false
+
 
 // command constants
 #define TRUE 1
@@ -30,7 +32,7 @@
 // TODO: Increase vertical resolution to 240
 #define IMAGE_HEIGHT_PIXELS 128   // in pixels
 #define IMAGE_SPREAD_DEGREES 120 // image height in degrees (like vertical Field Of View)
-#define IMAGE_START_ANGLE 30
+#define IMAGE_START_ANGLE 40
 
 // --- video details --- //
 #define VIDEO_FPS 20
@@ -45,7 +47,7 @@ FASTLED_USING_NAMESPACE
 #define COLOR_ORDER BGR
 
 // 8 MHz is the fastest rate we can sustain before we lose signal integrity
-#define LED_DATA_RATE DATA_RATE_MHZ(8)
+#define LED_DATA_RATE DATA_RATE_MHZ(7)
 
 #define NUM_LEDS 288
 CRGB ledStrip[NUM_LEDS];
@@ -142,11 +144,11 @@ bool read_esp_command(cmd_t &command) {
   // Serial.printf("packet length is %d", pktString.length());
   if (pktString.length() < 5)
     return false;
-
-  Serial.printf("parsing packet");
+  Serial.printf("parsing packet: %s\n", pktString.c_str());
   if (parseJsonString(pktString, json_packet)) {
     parseJsonCmd(json_packet, command);
-    Serial.printf("command display_on is %d", command.display_on);
+//    Serial.printf("command.display: %d, az: %d", command.display_on, command.eye_azimuth);
+//    Serial.printf("command display_on is %d\n", command.display_on);
   }
   return true;
 }
@@ -240,9 +242,9 @@ std::optional<int> ledsAngleToYCurser(const double alpha) {
 static const char *base_dirs[] = {
     "vid_center",
     "vid_left",
-    "vid_strong_left",
+//    "vid_strong_left",
     "vid_right",
-    "vid_strong_right",
+//    "vid_strong_right",
 };
 
 auto display_video(int video_index) {
@@ -277,10 +279,10 @@ bool read_esp_data(cmd_t &esp_packet) {
 
   if (esp_serial.available()) {
     time_considered_as_disconnection = millis() + esp_dead_timeout;
-    Serial.println("received command");
+//    Serial.println("received command");
     esp_connected = true;
     valid_packet = read_esp_command(esp_packet);
-    Serial.printf("packet is %d", valid_packet);
+//    Serial.printf("packet is %d", valid_packet);
   }
 
   if (esp_connected && millis() > time_considered_as_disconnection) {
@@ -292,15 +294,30 @@ bool read_esp_data(cmd_t &esp_packet) {
 }
 
 void esp_controller_loop(cmd_t esp_command) {
-
+  EVERY_N_SECONDS(2) {
+    Serial.printf("Command: az %d\n", esp_command.eye_azimuth);
+  }
   if (esp_command.display_on != 1) {
     fill_solid(ledStrip, NUM_LEDS, 0);
   } else if (esp_command.display_custom_text == 1) {
     // TODO display custom text (esp_command.custom_text_data)
   } else {
-    Serial.printf("running esp video command");
-    esp_command.eye_azimuth = 0;
-    display_video(esp_command.eye_azimuth);
+//    Serial.printf("running esp video command\n");
+//    esp_command.eye_azimuth = 0;
+    if (esp_command.eye_azimuth >= 0 && esp_command.eye_azimuth < 36) {
+      display_video(2);
+    } else if (esp_command.eye_azimuth >= 36 && esp_command.eye_azimuth < 72) {
+      display_video(1);
+    } else if (esp_command.eye_azimuth >= 72 && esp_command.eye_azimuth < 108) {
+      display_video(0);
+    } else if (esp_command.eye_azimuth >= 108 && esp_command.eye_azimuth < 144) {
+      display_video(3);
+    } else if (esp_command.eye_azimuth >= 144 && esp_command.eye_azimuth < 180) {
+      display_video(5);
+    } else {
+      display_video(0);
+    }
+
   }
 }
 
@@ -324,26 +341,25 @@ int video_index = 0;
 
 void loop() {
 //  read_esp_data(esp_command);
-//  if (esp_command.esp_connected)
-//  {
+//  if (esp_command.esp_connected) {
 //    Serial.printf("display is %d\n", bool(esp_command.display_on));
 //    esp_controller_loop(esp_command);
+//  } else {
+    EVERY_N_SECONDS(120) {
+      const auto next_index = random(10);
+      video_index = next_index > 3 ? 0 : next_index;
+      video_index = (video_index + 1) > 4 ? 0 : video_index + 1;
+      Serial.printf("video file is %d\n", base_dirs[video_index]);
+    }
+    display_video(video_index);
 //  }
-//  else
-//  {
-//  }
-
-  EVERY_N_SECONDS(60) {
-    video_index = (video_index + 1) > 4 ? 0 : video_index + 1;
-    Serial.printf("video file is %d\n", base_dirs[video_index]);
-  }
-
-  display_video(video_index);
 
   // Uncomment to simulate interrupts
-//  EVERY_N_MILLISECONDS(100) {
-//    encoderInterrupt();
-//  }
+#if DEBUG_SIMULATE_INTERRUPTS
+  EVERY_N_MILLISECONDS(100) {
+    encoderInterrupt();
+  }
+#endif  // DEBUG_SIMULATE_INTERRUPTS
 
   FastLED.show();
 }
